@@ -169,6 +169,8 @@ export class Lexer {
     public lexerDefinitionErrors: ILexerDefinitionError[] = []
 
     protected patternIdxToConfig: any = {}
+    protected charCodeToPatternIdxToConfig: any = {}
+    protected noneCharCodeOptimizedPatterns: any = {}
 
     protected modes: string[] = []
     protected defaultMode: string
@@ -352,6 +354,13 @@ export class Lexer {
 
                     this.patternIdxToConfig[currModName] =
                         currAnalyzeResult.patternIdxToConfig
+
+                    this.charCodeToPatternIdxToConfig[currModName] =
+                        currAnalyzeResult.charCodeToPatternIdxToConfig
+
+                    this.noneCharCodeOptimizedPatterns[currModName] =
+                        currAnalyzeResult.noneCharCodeOptimizedPatterns
+
                     this.emptyGroups = merge(
                         this.emptyGroups,
                         currAnalyzeResult.emptyGroups
@@ -495,6 +504,8 @@ export class Lexer {
 
         let currModePatternsLength = 0
         let patternIdxToConfig = []
+        let charCodeToPatternIdxToConfig = []
+        let noneCharCodeOptimizedPatterns = []
 
         let modeStack = []
         let pop_mode = popToken => {
@@ -527,12 +538,22 @@ export class Lexer {
                 modeStack.pop()
                 let newMode = last(modeStack)
                 patternIdxToConfig = this.patternIdxToConfig[newMode]
+                charCodeToPatternIdxToConfig = this
+                    .charCodeToPatternIdxToConfig[newMode]
+                noneCharCodeOptimizedPatterns = this
+                    .noneCharCodeOptimizedPatterns[newMode]
                 currModePatternsLength = patternIdxToConfig.length
             }
         }
 
         function push_mode(newMode) {
             modeStack.push(newMode)
+            charCodeToPatternIdxToConfig = this.charCodeToPatternIdxToConfig[
+                newMode
+            ]
+            noneCharCodeOptimizedPatterns = this.noneCharCodeOptimizedPatterns[
+                newMode
+            ]
             patternIdxToConfig = this.patternIdxToConfig[newMode]
             currModePatternsLength = patternIdxToConfig.length
         }
@@ -545,70 +566,105 @@ export class Lexer {
 
         while (offset < orgLength) {
             matchedImage = null
-            for (i = 0; i < currModePatternsLength; i++) {
-                currConfig = patternIdxToConfig[i]
-                let currPattern = currConfig.pattern
+            let nextCharCode = orgText.charCodeAt(offset)
+            let optimizedPatternIdxToConfig =
+                charCodeToPatternIdxToConfig[nextCharCode]
+            let tryOptimizedSearch = true
+            do {
+                let chosenPatternIdxToConfig
 
-                // manually in-lined because > 600 chars won't be in-lined in V8
-                let singleCharCode = currConfig.short
-                if (singleCharCode !== false) {
-                    if (orgText.charCodeAt(offset) === singleCharCode) {
-                        // single character string
-                        matchedImage = currPattern
-                    }
-                } else if (currConfig.isCustom === true) {
-                    match = currPattern.exec(
-                        orgText,
-                        offset,
-                        matchedTokens,
-                        groups
-                    )
-                    matchedImage = match !== null ? match[0] : match
+                if (
+                    optimizedPatternIdxToConfig !== undefined &&
+                    tryOptimizedSearch === true
+                ) {
+                    chosenPatternIdxToConfig = optimizedPatternIdxToConfig
                 } else {
-                    this.updateLastIndex(currPattern, offset)
-                    matchedImage = this.match(currPattern, text, offset)
+                    // if none of the optimized search vectors can match we only need to attempt
+                    // the patterns that cannot be optimized, a pattern can either be optimized or it cannot be
+                    // never "partially" optimized
+                    chosenPatternIdxToConfig = noneCharCodeOptimizedPatterns
                 }
 
-                if (matchedImage !== null) {
-                    // even though this pattern matched we must try a another longer alternative.
-                    // this can be used to prioritize keywords over identifiers
-                    longerAltIdx = currConfig.longerAlt
-                    if (longerAltIdx !== undefined) {
-                        // TODO: micro optimize, avoid extra prop access
-                        // by saving/linking longerAlt on the original config?
-                        let longerAltConfig = patternIdxToConfig[longerAltIdx]
-                        let longerAltPattern = longerAltConfig.pattern
+                let chosenPatternsLength = chosenPatternIdxToConfig.length
 
-                        // single Char can never be a longer alt so no need to test it.
-                        // manually in-lined because > 600 chars won't be in-lined in V8
-                        if (longerAltConfig.isCustom === true) {
-                            match = longerAltPattern.exec(
-                                orgText,
-                                offset,
-                                matchedTokens,
-                                groups
-                            )
-                            matchAltImage = match !== null ? match[0] : match
-                        } else {
-                            this.updateLastIndex(longerAltPattern, offset)
-                            matchAltImage = this.match(
-                                longerAltPattern,
-                                text,
-                                offset
-                            )
-                        }
+                for (i = 0; i < chosenPatternsLength; i++) {
+                    currConfig = chosenPatternIdxToConfig[i]
+                    let currPattern = currConfig.pattern
 
-                        if (
-                            matchAltImage &&
-                            matchAltImage.length > matchedImage.length
-                        ) {
-                            matchedImage = matchAltImage
-                            currConfig = longerAltConfig
+                    // manually in-lined because > 600 chars won't be in-lined in V8
+                    let singleCharCode = currConfig.short
+                    if (singleCharCode !== false) {
+                        if (nextCharCode === singleCharCode) {
+                            // single character string
+                            matchedImage = currPattern
                         }
+                    } else if (currConfig.isCustom === true) {
+                        match = currPattern.exec(
+                            orgText,
+                            offset,
+                            matchedTokens,
+                            groups
+                        )
+                        matchedImage = match !== null ? match[0] : match
+                    } else {
+                        this.updateLastIndex(currPattern, offset)
+                        matchedImage = this.match(currPattern, text, offset)
                     }
-                    break
+
+                    if (matchedImage !== null) {
+                        // even though this pattern matched we must try a another longer alternative.
+                        // this can be used to prioritize keywords over identifiers
+                        longerAltIdx = currConfig.longerAlt
+                        if (longerAltIdx !== undefined) {
+                            // TODO: micro optimize, avoid extra prop access
+                            // by saving/linking longerAlt on the original config?
+                            let longerAltConfig =
+                                // TODO: must use full list of configs for longer alt
+                                patternIdxToConfig[longerAltIdx]
+                            let longerAltPattern = longerAltConfig.pattern
+
+                            // single Char can never be a longer alt so no need to test it.
+                            // manually in-lined because > 600 chars won't be in-lined in V8
+                            if (longerAltConfig.isCustom === true) {
+                                match = longerAltPattern.exec(
+                                    orgText,
+                                    offset,
+                                    matchedTokens,
+                                    groups
+                                )
+                                matchAltImage =
+                                    match !== null ? match[0] : match
+                            } else {
+                                this.updateLastIndex(longerAltPattern, offset)
+                                matchAltImage = this.match(
+                                    longerAltPattern,
+                                    text,
+                                    offset
+                                )
+                            }
+
+                            if (
+                                matchAltImage &&
+                                matchAltImage.length > matchedImage.length
+                            ) {
+                                matchedImage = matchAltImage
+                                currConfig = longerAltConfig
+                            }
+                        }
+                        break
+                    }
                 }
-            }
+
+                // hacky hack to enter this doWhile at most twice
+                if (matchedImage === null) {
+                    tryOptimizedSearch = !tryOptimizedSearch
+                }
+            } while (
+                matchedImage === null && // not found
+                optimizedPatternIdxToConfig !== undefined && // tried optimized mode
+                tryOptimizedSearch === false
+            )
+
             // successful match
             if (matchedImage !== null) {
                 // matchedImage = match[0]
@@ -678,7 +734,7 @@ export class Lexer {
                     }
                 }
                 // will be NOOP if no modes present
-                this.handleModes(i, currConfig, pop_mode, push_mode, newToken)
+                this.handleModes(currConfig, pop_mode, push_mode, newToken)
             } else {
                 // error recovery, drop characters until we identify a valid token's start point
                 let errorStartOffset = offset
@@ -751,7 +807,7 @@ export class Lexer {
         }
     }
 
-    private handleModes(i, config, pop_mode, push_mode, newToken) {
+    private handleModes(config, pop_mode, push_mode, newToken) {
         if (config.pop === true) {
             // need to save the PUSH_MODE property as if the mode is popped
             // patternIdxToPopMode is updated to reflect the new mode after popping the stack

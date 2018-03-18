@@ -1,4 +1,4 @@
-import { has, isObject, isString, isUndefined } from "../utils/utils"
+import { forEach, has, isObject, isString, isUndefined } from "../utils/utils"
 import { defineNameProp, functionName } from "../lang/lang_extensions"
 import { Lexer, TokenType } from "./lexer_public"
 import { augmentTokenTypes, tokenStructuredMatcher } from "./tokens"
@@ -84,6 +84,12 @@ export interface ITokenConfig {
      * If true and the line_breaks property is not also true this will cause inaccuracies in the Lexer's line / column tracking.
      */
     line_breaks?: boolean
+    /**
+     * An array of single character strings.
+     * These will be used to optimize the Lexer's performance.
+     * TBD: <Link to docs>
+     */
+    start_chars_hint?: string[]
 }
 
 const PARENT = "parent"
@@ -94,6 +100,7 @@ const PUSH_MODE = "push_mode"
 const POP_MODE = "pop_mode"
 const LONGER_ALT = "longer_alt"
 const LINE_BREAKS = "line_breaks"
+const START_CHARS_HINT = "start_chars_hint"
 
 /**
  * @param {ITokenConfig} config - The configuration for
@@ -154,6 +161,18 @@ function createTokenInternal(config: ITokenConfig): TokenType {
 
     if (has(config, LINE_BREAKS)) {
         tokenType.LINE_BREAKS = config[LINE_BREAKS]
+    }
+
+    if (has(config, START_CHARS_HINT)) {
+        tokenType.START_CHARS_HINT = config[START_CHARS_HINT]
+
+        forEach(tokenType.START_CHARS_HINT, char => {
+            if (char.length > 1) {
+                throw Error(
+                    "All <start_chars_hint elements> must be single character strings"
+                )
+            }
+        })
     }
 
     return tokenType

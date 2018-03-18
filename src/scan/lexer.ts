@@ -28,7 +28,8 @@ import {
     map,
     mapValues,
     reduce,
-    reject
+    reject,
+    values
 } from "../utils/utils"
 
 const PATTERN = "PATTERN"
@@ -49,6 +50,8 @@ export interface IPatternConfig {
 
 export interface IAnalyzeResult {
     patternIdxToConfig: IPatternConfig[]
+    charCodeToPatternIdxToConfig: { [charCode: number]: IPatternConfig[] }
+    noneCharCodeOptimizedPatterns: IPatternConfig[]
     emptyGroups: { [groupName: string]: IToken[] }
     hasCustom: boolean
 }
@@ -222,11 +225,67 @@ export function analyzeTokenTypes(
         }
     })
 
+    function addToMapOfArrays(map, key, value) {
+        if (map[key] === undefined) {
+            map[key] = []
+        }
+        map[key].push(value)
+    }
+
+    let charCodeToPatternIdxToConfig = reduce(
+        onlyRelevantTypes,
+        (result, currTokType, idx) => {
+            // TODO2: build regExp parser to use this optimization for more scenarios
+            if (typeof currTokType.PATTERN === "string") {
+                const key = currTokType.PATTERN.charCodeAt(0)
+                addToMapOfArrays(result, key, patternIdxToConfig[idx])
+            } else if (isArray(currTokType.START_CHARS_HINT)) {
+                // TODO: where do type validations should be for "START_CHARS_HINT"?
+                forEach(currTokType.START_CHARS_HINT, char => {
+                    const key = char.charCodeAt(0)
+                    addToMapOfArrays(result, key, patternIdxToConfig[idx])
+                })
+            } else if (
+                isRegExp(currTokType.PATTERN) &&
+                isPlainStartCharRegExp(currTokType.PATTERN)
+            ) {
+                const key = currTokType.PATTERN.source.charCodeAt(0)
+                addToMapOfArrays(result, key, patternIdxToConfig[idx])
+            }
+
+            return result
+        },
+        {}
+    )
+
+    const charCodeOptimizedPatterns = flatten(
+        values(charCodeToPatternIdxToConfig)
+    )
+    const noneCharCodeOptimizedPatterns: any = difference(
+        patternIdxToConfig,
+        charCodeOptimizedPatterns
+    )
+
     return {
         emptyGroups: emptyGroups,
         patternIdxToConfig: patternIdxToConfig,
+        charCodeToPatternIdxToConfig: charCodeToPatternIdxToConfig,
+        noneCharCodeOptimizedPatterns: noneCharCodeOptimizedPatterns,
         hasCustom: hasCustom
     }
+}
+
+const plainRegExpPattern = /[.\\\[\]^|$()?*+{}]/
+/**
+ * will return true if regExp.toString()[0] is guaranteed
+ * to be the first character in any string matching this regExp.
+ */
+function isPlainStartCharRegExp(regExp: RegExp) {
+    if (regExp.ignoreCase || (regExp as any).unicode) {
+        return false
+    }
+
+    return plainRegExpPattern.test(regExp.source) === false
 }
 
 export function validatePatterns(

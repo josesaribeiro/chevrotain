@@ -4,31 +4,49 @@ var Token = chevrotain.Token
 var createToken = chevrotain.createToken
 var ChevrotainLexer = chevrotain.Lexer
 
-var True = createToken({ name: "True", pattern: /true/ })
-var False = createToken({ name: "False", pattern: /false/ })
-var Null = createToken({ name: "Null", pattern: /null/ })
-var LCurly = createToken({ name: "LCurly", pattern: /{/ })
-var RCurly = createToken({ name: "RCurly", pattern: /}/ })
-var LSquare = createToken({ name: "LSquare", pattern: /\[/ })
-var RSquare = createToken({ name: "RSquare", pattern: /]/ })
-var Comma = createToken({ name: "Comma", pattern: /,/ })
-var Colon = createToken({ name: "Colon", pattern: /:/ })
+var True = createToken({ name: "True", pattern: "true" })
+var False = createToken({ name: "False", pattern: "false" })
+var Null = createToken({ name: "Null", pattern: "null" })
+var LCurly = createToken({ name: "LCurly", pattern: "{" })
+var RCurly = createToken({ name: "RCurly", pattern: "}" })
+var LSquare = createToken({ name: "LSquare", pattern: "[" })
+var RSquare = createToken({ name: "RSquare", pattern: "]" })
+var Comma = createToken({ name: "Comma", pattern: "," })
+var Colon = createToken({ name: "Colon", pattern: ":" })
 
 var stringLiteralPattern = /"(?:[^\\"]|\\(?:[bfnrtv"\\/]|u[0-9a-fA-F]{4}))*"/
 var StringLiteral = createToken({
     name: "StringLiteral",
     pattern: stringLiteralPattern
 })
+
+StringLiteral.START_CHARS_HINT = ['"']
+
 var NumberLiteral = createToken({
     name: "NumberLiteral",
     pattern: /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/
 })
+NumberLiteral.START_CHARS_HINT = [
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "-"
+]
+
 var WhiteSpace = createToken({
     name: "WhiteSpace",
     pattern: /\s+/,
     group: ChevrotainLexer.SKIPPED,
     line_breaks: true
 })
+WhiteSpace.START_CHARS_HINT = [" ", "\r", "\t", "\n"]
 
 var jsonTokens = [
     WhiteSpace,
